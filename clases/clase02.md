@@ -1,50 +1,58 @@
-# Clase 02: El Dominio de la Frecuencia
+# Clase 02: El Dominio de la Frecuencia (Laboratorio Avanzado)
 
-Esta clase marca la transición del análisis clásico en el **dominio del tiempo** (donde observamos la evolución de la señal segundo a segundo) hacia el **dominio de la frecuencia**, permitiéndonos descomponer las señales en sus ingredientes (tonos puros o armónicos) gracias a la Transformada de Fourier.
+Esta clase profundiza sobre los aspectos físicos, matemáticos y computacionales del pasaje al **dominio de la frecuencia**. Mediante la Transformada Rápida de Fourier (FFT), no solo visualizamos "tonos", sino que podemos entender las limitaciones del mundo digital (resolución, enventanado, Nyquist y cuantización).
 
-A continuación vemos los temas clave y cómo se aplican matemáticamente en el código de nuestro proyecto.
-
----
-
-## 1. De la Serie Temporal al Dominio Espectral (FT, DFT, FFT)
-
-La **Transformada de Fourier** establece que cualquier señal periódica o de energía finita se puede representar como una suma infinita de senos y cosenos de distintas frecuencias. En el mundo del procesamiento digital (con computadoras), no podemos usar integrales continuas (FT), por lo que usamos la **Transformada Discreta de Fourier (DFT)**.
-
-Para calcularla de manera computacionalmente eficiente, usamos un algoritmo llamado **Fast Fourier Transform (FFT)**, que reduce enormemente la cantidad de operaciones matemáticas necesarias, de $O(N^2)$ a $O(N \log N)$.
-
-### 🔗 Vínculo con el Proyecto: Implementación de FFT
-En nuestro código, aislamos toda la complejidad del motor FFT dentro del archivo `utils.py`:
-- **Función:** `calculate_fft(signal, fs)`
-- **Línea ~39 de `utils.py`:**
-  ```python
-  fft_result = np.fft.fft(signal)
-  freqs = np.fft.fftfreq(N, d=1/fs)
-  ```
-- **Simetría Hermitiana:** Como nuestras señales son números reales, la mitad del espectro (las frecuencias negativas) contiene información redundante. En el código recortamos el array a `half_N` y **multiplicamos la amplitud por `2/N`**. Dividir por N normaliza la magnitud que el algoritmo FFT hace crecer, y multiplicar por 2 recompensa la energía perdida al descartar las frecuencias negativas para que el pico resultante mida exactamente lo mismo que la amplitud del seno original.
+A continuación, detallamos el trasfondo de cada uno de los experimentos implementados en el `main.py` de nuestro proyecto:
 
 ---
 
-## 2. Senoidales y su Espectro
+## 1. El Motor FFT: Escalado Físico y Simetría Hermitiana
 
-Si analizamos un **tono puro** (una función seno perfecta) en el tiempo, vemos una oscilación constante. En el dominio de la frecuencia, la Transformada de Fourier de un seno ideal infinito es un par de **Deltas de Dirac** (impactos de anchura nula y altura infinita) ubicados en su frecuencia fundamental $+f_0$ y $-f_0$. Para fines prácticos y al usar señales reales cortadas abruptamente por computadoras, veremos picos concentrados.
+La **Fast Fourier Transform (FFT)** es un bastión fundamental del Procesamiento de Señales Digitales (DSP). Computacionalmente, implementarla requiere entender _qué_ escupe el algoritmo para traducirlo a la física de nuestro universo real.
 
-Cuando generamos la **Suma de dos senoidales** (ej. $f_1 = 5$ Hz y $f_2 = 12$ Hz), estamos aplicando el **principio de linealidad**. La función en el tiempo puede parecer caótica, pero la FFT obedece a la linealidad matemática: $FFT(A + B) = FFT(A) + FFT(B)$.
+### 📐 Simetría y Doblado de Espectro
+Toda señal de tiempo **real** (sin componentes imaginarios complejos) genera un espectro de Fourier que posee **Simetría Hermitiana**. Esto significa que las _frecuencias negativas_ son un reflejo complejo conjugado de las _frecuencias positivas_.
+- **En nuestro código (`utils.calculate_fft`)**: Cortamos el vector a exactamente la mitad `$N/2$`. No procesar las frecuencias negativas nos ahorra procesamiento y limpia la gráfica, porque toda la información analítica ya reside en el semieje positivo.
 
-### 🔗 Vínculo con el Proyecto: Descomposición de Senoidales
-En el dashboard 1 de nuestro `main.py`:
-- **Construcción:** Sumamos un seno de 5Hz + un seno de 12Hz + Ruido y generamos `y_continuous`.
-- **Análisis Visual:** En el gráfico inferior que muestra la FFT, vas a notar exactamente **dos picos agudos**, uno sobre $X=5$ y otro sobre $X=12$. De esta forma, el análisis espectral corta a través del ruido del dominio temporal y revela los picos limpios y puros ocultos en la señal general.
+### 📐 Escalado de Amplitud (El factor $2/N$)
+El algoritmo estándar de FFT suma las componentes a lo largo de las $N$ muestras, lo cual hace que los valores escalen proporcionalmente al tamaño del bloque N analizado, perdiendo su significado físico de "Amplitud".
+- Dividimos por $N$ para promediar la magnitud.
+- Multiplicamos por $2$ porque, al descartar brutalmente la mitad izquierda del espectro (frecuencias negativas), perdimos la mitad de la energía espectral generada por la FFT. Es decir: Multiplicar por 2 "levanta" el pico para que iguale a la amplitud exacta del seno original que introdujimos.
 
 ---
 
-## 3. Pulsos Rectangulares y su Respuesta en Frecuencia
+## 2. Resolución Espectral y Enventanado (Leakage)
 
-Un **pulso rectangular** (o compuerta $rect(t)$) se caracteriza por tener una amplitud constante durante un intervalo de tiempo y ser cero en el resto.
-Es muy interesante matemáticamente porque representa un cambio repentino. Una regla clave en DSP dice: *Cuanto más corta/rápida sea una transición en el tiempo, más bandas de frecuencias requiere para poder formarse.*
+Una ventana de tiempo finita en el mundo continuo equivale a tomar la señal y "multiplicarla" por una compuerta rectangular.
+La resolución espectral que la FFT nos puede dar está regida matemáticamente por el tamaño del balde ("Bin") de frecuencia:
+$$\Delta f = \frac{F_s}{N}$$
+Donde $F_s$ es la frecuencia de muestreo y $N$ es la cantidad de muestras de la ventana.
 
-Por esto, la Transformada de Fourier de un pulso rectangular toma la forma de una de las funciones más célebres en señales: la **Función Sinc** ($\text{sinc}(x) = \frac{\sin(\pi x)}{\pi x}$). El espectro no es un simple delta; se esparce con un lóbulo principal ancho alrededor del nivel DC (0 Hz) y lóbulos secundarios que oscilan tendiendo a cero en el infinito.
+### 🧪 Demostración en Código (`plot_spectral_resolution`)
+Al ejecutar la opción de resolución en nuestro menú de consola de `main.py`, visualizamos cómo dos senoidales muy cercanas (100 Hz y 102 Hz) se fusionan en un "Lóbulo gordo" cuando intentamos mirarlas bajo un N pobre ($N=128$). A medida que subimos a $N=2048$, el tamaño del Bin $\Delta f$ se vuelve diminuto, permitiendo discernir los picos finamente afilados como agujas. A eso le llamamos **Leakage** y Separabilidad Espectral.
 
-### 🔗 Vínculo con el Proyecto: Simulación del Pulso Sinc
-En el archivo `utils.py` y `main.py` recreamos este fenómeno de laboratorio:
-1. **Generación:** En la función `generate_pulse` dentro de `utils.py`, forzamos matemáticamente el vector de amplitudes a ser `1.0` solo en un marco contenido dentro de `t_start` y `t_end`.
-2. **Visualización:** Al ejecutar el segundo Dashboard de `main.py` (en la función `plot_pulse_fft()`), Plotly te renderizará de lado izquierdo el ancho del pulso temporal, y en el derecho el espectro en magnitud absoluto. Podrás observar visualmente que el espectro decae con rebotes formando la copa de la "Sinc". En lugar de tener picos discretos, un evento irrepetible (aperiódico) genera un **espectro continuo** (una huella frecuencial corrida por todos los anchos de banda).
+---
+
+## 3. La Ley Inversa de los Pulsos: Expansión de Banda
+
+La Transformada de Fourier impone una de las leyes más famosas de la naturaleza (directamente vinculada al principio de incertidumbre en la mecánica cuántica):
+**La escala de compresión en el tiempo es inversamente proporcional a la expansión en la frecuencia.** Matemáticamente:
+
+$$x(at) \xleftrightarrow{\text{FFT}} \frac{1}{|a|} X\left(\frac{f}{a}\right)$$
+
+Si el pulso es muy corto ($0.05$s), necesita invocar frecuencias infinitamente altas para construir artificialmente bordes tan afilados y repentinos.
+
+### 🧪 Demostración en Código (`plot_pulse_bandwidth_comparison`)
+En nuestra función graficamos de manera simultánea una compuerta de $0.5$s y una extremadamente angosta de $0.05$s. En el espectro observamos gráficamente que el pulso estrecho arrastra una función **Sinc** ($\frac{\sin(x)}{x}$) enorme y expandida de base muy ancha, demostrando que eventos súbitos en electrónica requieren muchísimo ancho de banda para transmitirse.
+
+---
+
+## 4. Piso de Ruido por Cuantización (Quantization Noise Floor)
+
+Finalmente, uno de los peores demonios de la conversión ADC (Analog-to-Digital Converter) es el error de redondeo de los bits. El error $e[n]$ se define como la diferencia entre el voltaje ideal y el escalón discreto asignado.
+
+Este error $e[n]$, lejos de ser armónico, se asemeja a un **ruido blanco** uniforme que inyecta basura energética a lo largo de *todas* las frecuencias hasta la frontera de límite de Nyquist ($F_s/2$).
+
+### 🧪 Demostración en Código (`plot_quantization_noise_floor`)
+Tomamos una señal pura y la degradamos (por ejemplo a 4 bits). Luego, analizamos matemáticamente `señal_original - señal_cuantizada` y le sacamos la FFT a *solo el error*.
+La gráfica de Plotly, en escala logarítmica (para visualizar correctamente lo que los ingenieros llaman el "Muro" o "Noise Floor"), muestra cómo el ruido de 4 bits se sostiene constante como una alfombra destructiva por sobre todo el espectro, tapando posibles armónicos menores que caigan por debajo de él.

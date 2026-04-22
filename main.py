@@ -1,139 +1,185 @@
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import sys
+
 from utils import generate_sine_wave, quantize_signal, calculate_fft, generate_pulse
+import serie_temporal_real
 
-THEME = "plotly_dark"  # Opciones: "plotly_dark", "plotly_white"
+THEME = "plotly_dark"
 
-def plot_sinusoids_fft():
-    # 1. Definir parametros de la senal (Tiempo Continuo de alta resolucion para simular analogico)
-    fs_simulada = 1000.0
-    duration = 1.0
-    t_continuous = np.linspace(0, duration, int(fs_simulada * duration), endpoint=False)
+def plot_spectral_resolution():
+    """
+    Lab 3.1: Efecto del Enventanado (Windowing / N size) en la Resolución Espectral
+    """
+    fs = 500.0  # Cumple Nyquist holgadamente para 100Hz
+    f1, f2 = 100.0, 102.0
     
-    # Senal compuesta: Suma de dos frecuencias puras + Ruido
-    f1 = 5.0
-    amp1 = 2.0
-    f2 = 12.0
-    amp2 = 1.0
+    N_values = [128, 256, 1024, 2048]
+    colors = ['rgba(255, 50, 50, 0.4)', 'rgba(255, 165, 0, 0.7)', 'rgba(50, 200, 255, 0.9)', 'rgba(255, 50, 255, 1.0)']
     
-    y_clean_1 = generate_sine_wave(t_continuous, f=f1, amp=amp1)
-    y_clean_2 = generate_sine_wave(t_continuous, f=f2, amp=amp2)
-    ruido = np.random.normal(0, 0.4, size=t_continuous.shape)
+    fig = go.Figure()
     
-    y_continuous = y_clean_1 + y_clean_2 + ruido
+    # Generamos la FFT para cada tamaño de ventana
+    for idx, N in enumerate(N_values):
+        duration = N / fs
+        t = np.linspace(0, duration, N, endpoint=False)
+        
+        # Señal compuesta: 100Hz y 102Hz
+        y = generate_sine_wave(t, f1, amp=1.0) + generate_sine_wave(t, f2, amp=0.8)
+        
+        freqs, mag = calculate_fft(y, fs)
+        
+        # Filtramos para visualizar únicamente la zona de interés
+        mask = (freqs >= 90) & (freqs <= 112)
+        
+        fig.add_trace(go.Scatter(
+            x=freqs[mask], y=mag[mask], 
+            mode='lines+markers' if N<=256 else 'lines', 
+            name=f'N={N} (Δf={fs/N:.2f}Hz)', 
+            line=dict(color=colors[idx], width=3 if N>=1024 else 2)
+        ))
 
-    # 2. Digitalizacion: Muestreo y Cuantizacion
-    fs_sampling = 50.0  
-    paso_muestreo = int(fs_simulada / fs_sampling)
-    t_discrete = t_continuous[::paso_muestreo]
-    y_discrete = y_continuous[::paso_muestreo]
-
-    bits = 4
-    y_quantized, levels = quantize_signal(y_discrete, bits, vmin=-4.5, vmax=4.5)
-
-    # 3. Analisis Frecuencial (FFT)
-    # FFT de senal pura/continua (muy alta resolucion -> aproxima al espectro ideal)
-    freqs_cont, mag_cont = calculate_fft(y_continuous, fs_simulada)
-    
-    # FFT de señal digital
-    freqs_quant, mag_quant = calculate_fft(y_quantized, fs_sampling)
-
-    # 4. Visualizacion
-    fig = make_subplots(
-        rows=2, cols=1, 
-        vertical_spacing=0.15,
-        subplot_titles=(
-            "Dominio del Tiempo: Sistema de Adquisición de Señal Compuesta + Ruido", 
-            "Dominio de la Frecuencia (FFT): Separación Espectral y Piso de Ruido"
-        )
+    fig.update_layout(
+        title='Resolución Espectral: Separabilidad de Frecuencias según el tamaño de N', 
+        xaxis_title='Frecuencia [Hz]', 
+        yaxis_title='Magnitud Normalizada', 
+        template=THEME,
+        hovermode="x unified"
     )
-
-    # --- DOMINIO DEL TIEMPO (Arriba) ---
-    fig.add_trace(go.Scatter(x=t_continuous, y=y_continuous, mode='lines', name='Senoides + Ruido', line=dict(color='cyan', width=2), opacity=0.6), row=1, col=1)
-    
-    # Stems para la señal digital
-    t_stem = np.empty((3 * len(t_discrete),))
-    t_stem[0::3], t_stem[1::3], t_stem[2::3] = t_discrete, t_discrete, np.nan
-    y_stem = np.empty((3 * len(y_quantized),))
-    y_stem[0::3], y_stem[1::3], y_stem[2::3] = 0, y_quantized, np.nan
-    fig.add_trace(go.Scatter(x=t_stem, y=y_stem, mode='lines', name='Muestras', line=dict(color='red', width=1.5), showlegend=False), row=1, col=1)
-    fig.add_trace(go.Scatter(x=t_discrete, y=y_quantized, mode='markers', name=f'Digital (Fs={fs_sampling}Hz, {bits} bits)', marker=dict(color='red', size=8, symbol='circle')), row=1, col=1)
-
-    # --- DOMINIO DE LA FRECUENCIA (Abajo) ---
-    # Graficamos espectro de base hasta un poco mas de Fs_sampling/2 para ver el límite de Nyquist
-    limite_visual_freq = fs_sampling / 2.0
-    mask = freqs_cont <= limite_visual_freq
-    
-    # Para el espectro continuo lo llenamos como un area
-    fig.add_trace(go.Scatter(x=freqs_cont[mask], y=mag_cont[mask], mode='lines', name='Espectro Analógico (Ideal)', line=dict(color='cyan', width=1), fill='tozeroy'), row=2, col=1)
-    
-    # Stems para la FFT digital
-    f_stem = np.empty((3 * len(freqs_quant),))
-    f_stem[0::3], f_stem[1::3], f_stem[2::3] = freqs_quant, freqs_quant, np.nan
-    mag_stem = np.empty((3 * len(mag_quant),))
-    mag_stem[0::3], mag_stem[1::3], mag_stem[2::3] = 0, mag_quant, np.nan
-    
-    fig.add_trace(go.Scatter(x=f_stem, y=mag_stem, mode='lines', line=dict(color='red', width=2), showlegend=False), row=2, col=1)
-    fig.add_trace(go.Scatter(x=freqs_quant, y=mag_quant, mode='markers', name='Espectro Digital (Calculado)', marker=dict(color='red', size=6, symbol='diamond')), row=2, col=1)
-
-    # Linea de limite de Nyquist
-    fig.add_vline(x=fs_sampling/2, line_dash="dash", line_color="orange", annotation_text="Nyquist Fs/2", row=2, col=1)
-
-    fig.update_layout(title='Análisis Dual: Tiempo vs Frecuencia (El poder de separar Senoidales)', height=800, template=THEME, hovermode="x unified")
-    fig.update_xaxes(title_text="Tiempo [s]", row=1, col=1)
-    fig.update_yaxes(title_text="Amplitud", row=1, col=1)
-    fig.update_xaxes(title_text="Frecuencia [Hz]", row=2, col=1)
-    fig.update_yaxes(title_text="Magnitud", row=2, col=1)
-
     fig.show()
 
-def plot_pulse_fft():
-    # 1. Parámetros del pulso
-    fs = 1000.0  # Alta resolucion
+def plot_pulse_bandwidth_comparison():
+    """
+    Lab 3.2: Contraste de Pulso Ancho vs Pulso Angosto y Ensanchamiento Espectral
+    """
+    fs = 1000.0
     duration = 2.0
-    # Simulamos sobre un intervalo mas amplio centrado en 0
     t = np.linspace(-duration/2, duration/2, int(fs * duration), endpoint=False)
     
-    # Generamos un pulso cuadrado de ancho 0.2s en el centro
-    width = 0.2
-    y_pulse = generate_pulse(t, -width/2, width/2, amp=1.0)
+    width_wide = 0.5
+    width_narrow = 0.05
     
-    # 2. Análisis Frecuencial
-    # Hacemos shift de la propia FFT si quisieramos verla simetrica,
-    # pero nuestra calculate_fft devuelve el espectro magnitud de freq positiva.
-    # Dado que un pulso en el tiempo (real, simetrico) da una Sinc en frecuencia,
-    # la magnitud de la FFT sera la funcion abs(sinc(f)).
-    freqs, mag = calculate_fft(y_pulse, fs)
+    y_wide = generate_pulse(t, -width_wide/2, width_wide/2, amp=1.0)
+    y_narrow = generate_pulse(t, -width_narrow/2, width_narrow/2, amp=1.0)
     
-    # 3. Visualización
+    f_w, mag_w = calculate_fft(y_wide, fs)
+    f_n, mag_n = calculate_fft(y_narrow, fs)
+    
     fig = make_subplots(
         rows=1, cols=2, 
-        subplot_titles=("Pulso Rectangular (Dominio Temporal)", "Espectro del Pulso: Expansión de Banda (Sinc)")
+        subplot_titles=("Onda Cuadrada: Compresión en el Tiempo", "Espectro: Función Sinc y Ensanchamiento de Banda")
     )
     
-    fig.add_trace(go.Scatter(x=t, y=y_pulse, mode='lines', name='Pulso', line=dict(color='yellow', width=3)), row=1, col=1)
+    fig.add_trace(go.Scatter(x=t, y=y_wide, name='Pulso Ancho (0.5s)', line=dict(color='cyan', width=2)), row=1, col=1)
+    fig.add_trace(go.Scatter(x=t, y=y_narrow, name='Pulso Estrecho (0.05s)', line=dict(color='yellow', width=2)), row=1, col=1)
     
-    # Aca el espectro de un pulso se extiende infinitamente, mostramos hasta 40 Hz
-    mask = freqs <= 40
-    fig.add_trace(go.Scatter(x=freqs[mask], y=mag[mask], mode='lines', name='Espectro (Magnitud)', fill='tozeroy', line=dict(color='magenta', width=2)), row=1, col=2)
+    # Filtramos las frecuencias visuales
+    mask = f_w <= 80
+    fig.add_trace(go.Scatter(x=f_w[mask], y=mag_w[mask], name='FFT Pulso Ancho', line=dict(color='cyan', width=2), fill='tozeroy'), row=1, col=2)
+    fig.add_trace(go.Scatter(x=f_n[mask], y=mag_n[mask], name='FFT Pulso Estrecho', line=dict(color='yellow', width=2), fill='tonexty'), row=1, col=2)
     
-    fig.update_layout(title='Análisis Frecuencial de Eventos (Señales Aperiódicas)', height=500, template=THEME)
-    fig.update_xaxes(title_text="Tiempo [s]", range=[-1, 1], row=1, col=1)
-    fig.update_yaxes(title_text="Amplitud", row=1, col=1)
+    fig.update_layout(
+        title='Ley Dispersiva: A menor duración en el tiempo, mayor Ancho de Banda necesario', 
+        template=THEME
+    )
     
+    fig.update_xaxes(title_text="Tiempo [s]", range=[-0.6, 0.6], row=1, col=1)
     fig.update_xaxes(title_text="Frecuencia [Hz]", row=1, col=2)
-    fig.update_yaxes(title_text="Magnitud", row=1, col=2)
     
     fig.show()
 
-def main():
-    print("Iniciando Fase 2: Módulos de Análisis...")
-    print("Cargando Dashboard 1 (Senoidales y Resolución)...")
-    plot_sinusoids_fft()
+def plot_quantization_noise_floor():
+    """
+    Lab 3.3: Degradación de Señal y Piso de Ruido por Cuantización (16 bit vs 4 bit)
+    """
+    fs = 500.0
+    duration = 2.0
+    t = np.linspace(0, duration, int(fs * duration), endpoint=False)
     
-    print("Cargando Dashboard 2 (Pulsos y Sinc)...")
-    plot_pulse_fft()
+    y_analog = generate_sine_wave(t, f=25.0, amp=4.0)
+    
+    # Cuantizamos a alta resolucion y baja resolucion
+    y_16, _ = quantize_signal(y_analog, bits=16, vmin=-5, vmax=5)
+    y_4, _  = quantize_signal(y_analog, bits=4, vmin=-5, vmax=5)
+    
+    # Extracción de la Señal de Ruido Termonuclear (Error = Medición Pura - Cuantizada)
+    error_16 = y_analog - y_16
+    error_4  = y_analog - y_4
+    
+    f_16, mag_err_16 = calculate_fft(error_16, fs)
+    f_4,  mag_err_4  = calculate_fft(error_4, fs)
+    
+    # FFT de la señal útil completa para mostrar que sobresale del piso
+    f_signal, mag_signal = calculate_fft(y_4, fs)
+    
+    mask = f_signal <= (fs / 2)
+    
+    fig = go.Figure()
+    
+    fig.add_trace(go.Scatter(
+        x=f_signal[mask], y=mag_signal[mask], 
+        name='Espectro de la Señal (4 bits)', 
+        line=dict(color='white', width=1)
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=f_16[mask], y=mag_err_16[mask], 
+        name='Piso Ruido Cuantización (16 bits)', 
+        line=dict(color='green', width=2)
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=f_4[mask], y=mag_err_4[mask], 
+        name='Piso Ruido Cuantización (4 bits)', 
+        line=dict(color='red', width=2)
+    ))
+    
+    # Eje Y tipo Logaritmico es fundamental para graficar "Pisó de ruido"
+    fig.update_layout(
+        title='Análisis de Degradación Cíclica: Piso de Ruido Disperso por Cuantización', 
+        xaxis_title='Frecuencia [Hz]',
+        yaxis_title='Magnitud (Escala Lineal-Log visual)',
+        yaxis_type="log",
+        template=THEME,
+        hovermode="x unified"
+    )
+    fig.show()
+
+def main_menu():
+    while True:
+        print("\n" + "="*50)
+        print(" LABORATORIO DE SEÑALES: Análisis Frecuencial")
+        print("="*50)
+        print("1. Resolución Espectral: Efecto N en tonos adyacentes")
+        print("2. Ancho de Banda y Pulsos: Ley Sinc y dispersión")
+        print("3. Cuantización: Demostración FFT del Piso de Ruido")
+        print("4. Casos Reales: Volatilidad BTC (Descomposicion Tiempo/Ruido)")
+        print("0. Salir")
+        print("="*50)
+        
+        opt = input("Seleccione un número para ejecutar el Dashboard deseado: ")
+        
+        if opt == '1':
+            print(">> Abriendo ventana PLOTLY: Resolución Espectral...")
+            plot_spectral_resolution()
+        elif opt == '2':
+            print(">> Abriendo ventana PLOTLY: Contraste de Pulsos...")
+            plot_pulse_bandwidth_comparison()
+        elif opt == '3':
+            print(">> Abriendo ventana PLOTLY: Ruido Cuantizado en FFT...")
+            plot_quantization_noise_floor()
+        elif opt == '4':
+            print(">> Abriendo Dashboard Bitcoin (Laboratorio previo)...")
+            serie_temporal_real.main()
+        elif opt == '0':
+            print("Saliendo del laboratorio...")
+            sys.exit(0)
+        else:
+            print("Error: Selección inválida.")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main_menu()
+    except KeyboardInterrupt:
+        print("\nSaliendo...")
