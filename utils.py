@@ -35,3 +35,50 @@ def quantize_signal(signal, bits, vmin, vmax):
         quantized[i] = levels[idx]
         
     return quantized, levels
+
+def calculate_fft(signal, fs):
+    """
+    Calcula la Transformada Rápida de Fourier (FFT) de una señal real.
+    Devuelve solo las frecuencias positivas y la magnitud normalizada (escalada por 2/N).
+    
+    Args:
+        signal: Array con la señal en el tiempo.
+        fs: Frecuencia de muestreo (Hz).
+        
+    Returns:
+        freqs: Array de frecuencias positivas en Hz.
+        magnitude: Array de la magnitud espectral normalizada.
+    """
+    N = len(signal)
+    
+    # np.fft.fft calcula ambos lados del espectro
+    fft_result = np.fft.fft(signal)
+    
+    # np.fft.fftfreq devuelve las frecuencias asociadas a cada coeficiente
+    freqs = np.fft.fftfreq(N, d=1/fs)
+    
+    # Nos quedamos con la primera mitad (frecuencias positivas) -> Simetria Hermitiana
+    half_N = N // 2
+    freqs_pos = freqs[:half_N]
+    
+    # Normalizamos magnitud dividiendo por N. Multiplicamos por 2 para no perder 
+    # la energia de la mitad negativa descartada (excepto el componente DC, pero 
+    # para ser practicos visualmente a menudo se escala todo por 2/N).
+    magnitude = np.abs(fft_result[:half_N]) * (2.0 / N)
+    
+    return freqs_pos, magnitude
+
+def generate_pulse(t, t_start, t_end, amp=1.0):
+    """
+    Genera un pulso rectangular matemático.
+    
+    Args:
+        t: Array de tiempos.
+        t_start: Tiempo donde inicia el pulso.
+        t_end: Tiempo donde finaliza el pulso.
+        amp: Amplitud del pulso.
+        
+    Returns:
+        Array de la misma longitud que t con el pulso.
+    """
+    return np.where((t >= t_start) & (t <= t_end), amp, 0.0)
